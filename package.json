@@ -1,0 +1,27 @@
+{
+  "name": "markovsw",
+  "version": "1.0.0",
+  "description": "A Markov chain text generator that blends different text sources (smart scraping kindof included)",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Build complete'",
+    "start": "vercel dev"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "node-fetch": "^3.3.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  },
+  "keywords": [
+    "markov-chain",
+    "text-generation",
+    "nlp",
+    "web-scraping"
+  ],
+  "author": "Julius (JNC4, Yaldabaoth)",
+  "license": "MIT"
+}
