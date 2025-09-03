@@ -33,21 +33,34 @@ export default async function handler(req, res) {
   try {
     console.log(`Attempting to scrape: ${url}`);
 
+    // Validate URL
+    try {
+      new URL(url);
+    } catch (urlError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid URL format'
+      });
+    }
+
     // Fetch the content with better timeout handling
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
     
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate'
-      },
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate'
+        },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -56,7 +69,6 @@ export default async function handler(req, res) {
     const contentType = response.headers.get('content-type') || '';
     console.log('Content-Type:', contentType);
     console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
     
     const content = await response.text();
     console.log('Content length:', content.length);
@@ -78,6 +90,7 @@ export default async function handler(req, res) {
         extractedText = extractedText.replace(/^[\s\S]*?\*\*\*\s*START\s+OF[\s\S]*?\*\*\*\n?/i, '');
         // Remove footer (everything after "*** END OF" or similar)
         extractedText = extractedText.replace(/\*\*\*\s*END\s+OF[\s\S]*$/i, '');
+        console.log('After Gutenberg cleanup:', extractedText.length, 'characters');
       }
     } else {
       // Process as HTML
