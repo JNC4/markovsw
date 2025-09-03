@@ -54,7 +54,13 @@ export default async function handler(req, res) {
     }
 
     const contentType = response.headers.get('content-type') || '';
+    console.log('Content-Type:', contentType);
+    console.log('Response status:', response.status);
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+    
     const content = await response.text();
+    console.log('Content length:', content.length);
+    console.log('First 200 chars:', content.substring(0, 200));
 
     let extractedText = '';
 
