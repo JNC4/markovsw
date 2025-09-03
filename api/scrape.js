@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   try {
     console.log(`Attempting to scrape: ${url}`);
 
-    // Fetch the webpage
+    // Fetch the content
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -45,65 +45,85 @@ export default async function handler(req, res) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    const contentType = response.headers.get('content-type') || '';
+    const content = await response.text();
 
-    // Extract text based on the website
     let extractedText = '';
 
-    if (url.includes('theunsentproject.com')) {
-      // Specific scraping for The Unsent Project
-      $('.post-content, .entry-content, .post, .message').each((i, el) => {
-        extractedText += $(el).text().trim() + '\n\n';
-      });
-    } else if (url.includes('gutenberg.org')) {
-      // Project Gutenberg books
-      $('.chapter, .poem, p').each((i, el) => {
-        const text = $(el).text().trim();
-        if (text.length > 20) { // Skip very short paragraphs
-          extractedText += text + '\n\n';
-        }
-      });
-    } else if (url.includes('reddit.com')) {
-      // Reddit posts
-      $('.usertext-body, [data-testid="comment"], .md').each((i, el) => {
-        extractedText += $(el).text().trim() + '\n\n';
-      });
-    } else if (url.includes('twitter.com') || url.includes('x.com')) {
-      // Twitter/X posts
-      $('[data-testid="tweetText"], .tweet-text').each((i, el) => {
-        extractedText += $(el).text().trim() + '\n\n';
-      });
-    } else {
-      // Generic scraping - try common content selectors
-      const contentSelectors = [
-        'article',
-        '.post-content',
-        '.entry-content', 
-        '.content',
-        'main p',
-        '.post',
-        '.message',
-        'p'
-      ];
-
-      for (const selector of contentSelectors) {
-        const elements = $(selector);
-        if (elements.length > 0) {
-          elements.each((i, el) => {
-            const text = $(el).text().trim();
-            if (text.length > 30) { // Only include substantial paragraphs
-              extractedText += text + '\n\n';
-            }
-          });
-          break; // Use the first selector that finds content
-        }
+    // Check if it's a plain text file (like Gutenberg .txt files)
+    if (contentType.includes('text/plain') || url.endsWith('.txt')) {
+      console.log('Processing as plain text file');
+      extractedText = content
+        .replace(/\r\n/g, '\n') // Normalize line endings
+        .replace(/\n\s*\n\s*\n/g, '\n\n') // Clean up excessive line breaks
+        .trim();
+      
+      // Remove common Project Gutenberg headers/footers
+      if (url.includes('gutenberg.org')) {
+        // Remove header (everything before "*** START OF" or similar)
+        extractedText = extractedText.replace(/^[\s\S]*?\*\*\*\s*START\s+OF[\s\S]*?\*\*\*\n?/i, '');
+        // Remove footer (everything after "*** END OF" or similar)
+        extractedText = extractedText.replace(/\*\*\*\s*END\s+OF[\s\S]*$/i, '');
       }
+    } else {
+      // Process as HTML
+      console.log('Processing as HTML');
+      const $ = cheerio.load(content);
 
-      // If no structured content found, try to get all text
-      if (!extractedText.trim()) {
-        $('script, style, nav, header, footer, .ad, .advertisement').remove();
-        extractedText = $('body').text().replace(/\s+/g, ' ').trim();
+      if (url.includes('theunsentproject.com')) {
+        // Specific scraping for The Unsent Project
+        $('.post-content, .entry-content, .post, .message').each((i, el) => {
+          extractedText += $(el).text().trim() + '\n\n';
+        });
+      } else if (url.includes('gutenberg.org') && !url.endsWith('.txt')) {
+        // Project Gutenberg HTML pages
+        $('.chapter, .poem, p').each((i, el) => {
+          const text = $(el).text().trim();
+          if (text.length > 20) { // Skip very short paragraphs
+            extractedText += text + '\n\n';
+          }
+        });
+      } else if (url.includes('reddit.com')) {
+        // Reddit posts
+        $('.usertext-body, [data-testid="comment"], .md').each((i, el) => {
+          extractedText += $(el).text().trim() + '\n\n';
+        });
+      } else if (url.includes('twitter.com') || url.includes('x.com')) {
+        // Twitter/X posts
+        $('[data-testid="tweetText"], .tweet-text').each((i, el) => {
+          extractedText += $(el).text().trim() + '\n\n';
+        });
+      } else {
+        // Generic scraping - try common content selectors
+        const contentSelectors = [
+          'article',
+          '.post-content',
+          '.entry-content', 
+          '.content',
+          'main p',
+          '.post',
+          '.message',
+          'p'
+        ];
+
+        for (const selector of contentSelectors) {
+          const elements = $(selector);
+          if (elements.length > 0) {
+            elements.each((i, el) => {
+              const text = $(el).text().trim();
+              if (text.length > 30) { // Only include substantial paragraphs
+                extractedText += text + '\n\n';
+              }
+            });
+            break; // Use the first selector that finds content
+          }
+        }
+
+        // If no structured content found, try to get all text
+        if (!extractedText.trim()) {
+          $('script, style, nav, header, footer, .ad, .advertisement').remove();
+          extractedText = $('body').text().replace(/\s+/g, ' ').trim();
+        }
       }
     }
 
