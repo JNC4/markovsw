@@ -450,6 +450,21 @@
                     },
                 });
                 
+                // Check if response is ok first
+                if (!response.ok) {
+                    // Try to get error message from response
+                    let errorMessage = `HTTP ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        // If JSON parsing fails, get text response
+                        const errorText = await response.text();
+                        errorMessage = errorText.substring(0, 100) + '...';
+                    }
+                    throw new Error(errorMessage);
+                }
+                
                 const data = await response.json();
                 
                 if (data.success) {
@@ -468,14 +483,14 @@
                     throw new Error(data.error || 'Scraping failed');
                 }
             } catch (error) {
+                console.error('Full error object:', error);
                 document.getElementById('status').textContent = 
-                    `Error scraping ${url}: ${error.message}`;
-                console.error('Scraping error:', error);
+                    `Error: ${error.message}`;
                 
-                // Provide helpful suggestions
-                if (error.message.includes('CORS')) {
+                // Show debug info for Project Gutenberg specifically
+                if (url.includes('gutenberg.org')) {
                     document.getElementById('status').textContent += 
-                        ' (Try pasting the text directly instead)';
+                        ' (Try: Right-click → Save link as → Upload the file instead)';
                 }
             } finally {
                 button.disabled = false;
