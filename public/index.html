@@ -227,7 +227,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎭 Markov Chain Text Generator</h1>
+            <h1>🎭 Yaldabaoth's Markov Chain Text Generator</h1>
             <p>Blend different text sources to create unique generated sentences</p>
         </div>
         
@@ -235,13 +235,13 @@
             <div class="corpus-input">
                 <h3>📖 Corpus A</h3>
                 <div class="url-input">
-                    <input type="text" id="urlA" placeholder="Enter URL to scrape (e.g., RSS feed, blog)" />
+                    <input type="text" id="urlA" placeholder="Enter URL to scrape (e.g., .txt from gutenberg works best)" />
                     <button onclick="scrapeUrl('A')" style="margin-top: 10px; width: 100%;">Scrape URL</button>
                 </div>
                 <div class="file-input">
                     <input type="file" id="fileA" accept=".txt,.json" onchange="loadFile('A')" />
                 </div>
-                <textarea id="textA" placeholder="Or paste text directly here..."></textarea>
+                <textarea id="textA" placeholder="Or paste text directly here... meow"></textarea>
             </div>
             
             <div class="corpus-input">
@@ -273,7 +273,7 @@
                 <label for="chainOrder">Chain Order:</label>
                 <select id="chainOrder">
                     <option value="1">1 (Simple)</option>
-                    <option value="2" selected>2 (Recommended)</option>
+                    <option value="2" selected>2 (goldilocks)</option>
                     <option value="3">3 (Complex)</option>
                 </select>
             </div>
@@ -294,12 +294,12 @@
                 <input type="number" id="sentenceLength" value="20" min="5" max="100" />
             </div>
             
-            <button onclick="trainAndGenerate()" id="generateBtn">🎲 Generate Text</button>
+            <button onclick="trainAndGenerate()" id="generateBtn">Generate Text</button>
         </div>
         
         <div class="output">
             <h3>✨ Generated Text</h3>
-            <div class="status" id="status">Load some text corpus and click generate!</div>
+            <div class="status" id="status">Load some text corpus and click generate! or dont. what</div>
             <div class="generated-text" id="generatedText"></div>
         </div>
         
