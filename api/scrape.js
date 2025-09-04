@@ -63,13 +63,14 @@ export default async function handler(req, res) {
     }
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
     }
 
     const contentType = response.headers.get('content-type') || '';
     console.log('Content-Type:', contentType);
     console.log('Response status:', response.status);
     
+    // Read the content only once
     const content = await response.text();
     console.log('Content length:', content.length);
     console.log('First 200 chars:', content.substring(0, 200));
@@ -179,9 +180,21 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Scraping error:', error);
     
+    // Don't try to read response body again in error handling
+    let errorMessage = error.message || 'Failed to scrape the URL';
+    
+    // Handle specific error types
+    if (error.name === 'AbortError') {
+      errorMessage = 'Request timed out after 15 seconds';
+    } else if (error.code === 'ENOTFOUND') {
+      errorMessage = 'Domain not found - check the URL';
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Connection refused by server';
+    }
+    
     return res.status(500).json({
       success: false,
-      error: error.message || 'Failed to scrape the URL',
+      error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
