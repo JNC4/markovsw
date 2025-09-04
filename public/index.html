@@ -437,60 +437,53 @@
         return;
     }
     
-    document.getElementById('status').textContent = `Scraping ${url}...`;
+    document.getElementById('status').textContent = `Checking ${url}...`;
     const button = document.querySelector(`button[onclick="scrapeUrl('${corpus}')"]`);
     button.disabled = true;
-    button.textContent = 'Scraping...';
+    button.textContent = 'Checking...';
     
     try {
-        const response = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`, {
+        // First, check if it's a large file
+        const checkResponse = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
         });
         
-        // Read the response body only once
-        const responseText = await response.text();
+        const responseText = await checkResponse.text();
         
-        // Check if response is ok after reading the body
-        if (!response.ok) {
-            let errorMessage = `HTTP ${response.status}`;
+        if (!checkResponse.ok) {
+            let errorMessage = `HTTP ${checkResponse.status}`;
             try {
-                // Try to parse the already-read response as JSON
                 const errorData = JSON.parse(responseText);
                 errorMessage = errorData.error || errorMessage;
             } catch (e) {
-                // If JSON parsing fails, use the text response directly
                 errorMessage = responseText.substring(0, 200) + (responseText.length > 200 ? '...' : '');
             }
             throw new Error(errorMessage);
         }
         
-        // Parse the successful response
         const data = JSON.parse(responseText);
         
-        if (data.success) {
-            document.getElementById(`text${corpus}`).value = data.text;
-            
-            if (corpus === 'A') {
-                corpusA = data.text;
-            } else {
-                corpusB = data.text;
+        if (data.isLargeFile) {
+            // Show options for large files
+            const choice = await showLargeFileOptions(data);
+            if (!choice) {
+                return; // User cancelled
             }
             
-            updateStats();
-            document.getElementById('status').textContent = 
-                `Successfully scraped ${data.wordCount.toLocaleString()} words from ${url}`;
+            // Process with chosen method
+            await proceseLargeFile(corpus, url, choice, data);
+        } else if (data.success) {
+            // Regular successful scrape
+            processScrapedText(corpus, data);
         } else {
             throw new Error(data.error || 'Scraping failed');
         }
+        
     } catch (error) {
         console.error('Full error object:', error);
-        document.getElementById('status').textContent = 
-            `Error: ${error.message}`;
+        document.getElementById('status').textContent = `Error: ${error.message}`;
         
-        // Show debug info for Project Gutenberg specifically
         if (url.includes('gutenberg.org')) {
             document.getElementById('status').textContent += 
                 ' (Try: Right-click → Save link as → Upload the file instead)';
@@ -499,6 +492,94 @@
         button.disabled = false;
         button.textContent = 'Scrape URL';
     }
+}
+
+async function showLargeFileOptions(data) {
+    const message = `Large file detected (${data.fileSizeMB}MB)!\n\nChoose processing method:\n\n` +
+                   `1. Sample (recommended) - Get first ~10,000 words\n` +
+                   `2. Batch - Process in 150KB chunks\n` +
+                   `3. Cancel - Try downloading and uploading instead\n\n` +
+                   `Enter 1, 2, or 3:`;
+    
+    const choice = prompt(message);
+    
+    switch(choice) {
+        case '1': return 'sample';
+        case '2': return 'batch';
+        case '3': 
+        default: return null;
+    }
+}
+
+async function proceseLargeFile(corpus, url, mode, fileData) {
+    document.getElementById('status').textContent = `Processing large file (${mode} mode)...`;
+    
+    if (mode === 'sample') {
+        // Sample mode - get first ~10k words
+        const response = await fetch(`/api/scrape?url=${encodeURIComponent(url)}&mode=sample`);
+        const responseText = await response.text();
+        
+        if (response.ok) {
+            const data = JSON.parse(responseText);
+            processScrapedText(corpus, data);
+            document.getElementById('status').textContent += ` (Sample of ${data.wordCount} words)`;
+        } else {
+            throw new Error('Sample processing failed');
+        }
+        
+    } else if (mode === 'batch') {
+        // Batch mode - let user choose which batch or get first few
+        const totalBatches = Math.ceil(fileData.fileSize / 150000);
+        const maxBatches = Math.min(3, totalBatches); // Limit to first 3 batches
+        
+        let combinedText = '';
+        let totalWords = 0;
+        
+        for (let i = 0; i < maxBatches; i++) {
+            document.getElementById('status').textContent = `Processing batch ${i + 1}/${maxBatches}...`;
+            
+            const response = await fetch(`/api/scrape?url=${encodeURIComponent(url)}&mode=batch&batch=${i}`);
+            const responseText = await response.text();
+            
+            if (response.ok) {
+                const batchData = JSON.parse(responseText);
+                combinedText += batchData.text + '\n\n';
+                totalWords += batchData.wordCount;
+            } else {
+                console.warn(`Batch ${i} failed, continuing...`);
+            }
+            
+            // Stop if we have enough content
+            if (totalWords > 10000) break;
+        }
+        
+        if (combinedText.trim()) {
+            const finalData = {
+                success: true,
+                text: combinedText.trim(),
+                wordCount: totalWords,
+                url: url
+            };
+            processScrapedText(corpus, finalData);
+            document.getElementById('status').textContent = `Successfully processed ${maxBatches} batches (${totalWords} words)`;
+        } else {
+            throw new Error('No content retrieved from batches');
+        }
+    }
+}
+
+function processScrapedText(corpus, data) {
+    document.getElementById(`text${corpus}`).value = data.text;
+    
+    if (corpus === 'A') {
+        corpusA = data.text;
+    } else {
+        corpusB = data.text;
+    }
+    
+    updateStats();
+    document.getElementById('status').textContent = 
+        `Successfully scraped ${data.wordCount.toLocaleString()} words from ${data.url}`;
 }
         
         function trainAndGenerate() {

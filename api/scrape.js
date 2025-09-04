@@ -121,7 +121,9 @@ export default async function handler(req, res) {
       success: true,
       text: extractedText,
       wordCount: wordCount,
-      url: url
+      url: url,
+      mode: mode || 'complete',
+      batch: batch || 0
     });
 
   } catch (error) {
@@ -139,4 +141,122 @@ export default async function handler(req, res) {
       error: errorMessage
     });
   }
+}
+
+// Helper function to check file size
+async function checkFileSize(url) {
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    const contentLength = response.headers.get('content-length');
+    return contentLength ? parseInt(contentLength) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// Fetch complete file (for smaller files)
+async function fetchComplete(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  const response = await fetch(url, {
+    signal: controller.signal,
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TextBot/1.0)' }
+  });
+
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const text = await response.text();
+  
+  if (text.length > 500000) {
+    throw new Error('File too large for complete processing');
+  }
+
+  return text;
+}
+
+// Fetch a sample from the beginning (first ~10,000 words)
+async function fetchSample(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  const response = await fetch(url, {
+    signal: controller.signal,
+    headers: { 
+      'User-Agent': 'Mozilla/5.0 (compatible; TextBot/1.0)',
+      'Range': 'bytes=0-200000' // First 200KB
+    }
+  });
+
+  clearTimeout(timeout);
+
+  if (!response.ok && response.status !== 206) {
+    // If range request fails, try regular fetch with early termination
+    return await fetchWithEarlyStop(url);
+  }
+
+  return await response.text();
+}
+
+// Fetch with early termination when we have enough words
+async function fetchWithEarlyStop(url) {
+  const response = await fetch(url);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  
+  let text = '';
+  let wordCount = 0;
+  const targetWords = 15000; // Get a bit more than 10k to account for cleanup
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      text += chunk;
+      
+      // Count words periodically
+      if (text.length % 10000 === 0) {
+        wordCount = text.split(/\s+/).length;
+        if (wordCount > targetWords) {
+          break;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  
+  return text;
+}
+
+// Batch processing (experimental)
+async function fetchBatch(url, batchNumber) {
+  const batchSize = 150000; // 150KB per batch
+  const start = batchNumber * batchSize;
+  const end = start + batchSize - 1;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  const response = await fetch(url, {
+    signal: controller.signal,
+    headers: { 
+      'User-Agent': 'Mozilla/5.0 (compatible; TextBot/1.0)',
+      'Range': `bytes=${start}-${end}`
+    }
+  });
+
+  clearTimeout(timeout);
+
+  if (!response.ok && response.status !== 206) {
+    throw new Error(`Batch fetch failed: ${response.status}`);
+  }
+
+  return await response.text();
 }
