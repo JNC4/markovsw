@@ -173,7 +173,7 @@
             font-size: 1.1em;
             line-height: 1.6;
             color: #444;
-            font-style: italic;
+            font-style: normal; /* Changed from italic to normal */
             min-height: 50px;
         }
         
@@ -340,9 +340,13 @@
             }
             
             tokenize(text) {
+                // Improved tokenization that preserves punctuation better
                 return text.toLowerCase()
-                    .replace(/[^\w\s.!?]/g, '')
-                    .split(/\s+/)
+                    .replace(/([.!?:;])/g, ' $1 ') // Add spaces around punctuation
+                    .replace(/[^\w\s.!?:;,-]/g, ' ') // Remove other special chars but keep common punctuation
+                    .replace(/\s+/g, ' ') // Normalize whitespace
+                    .trim()
+                    .split(' ')
                     .filter(word => word.length > 0);
             }
             
@@ -380,7 +384,17 @@
                     }
                 }
                 
-                return this.capitalize(result.join(' '));
+                return this.capitalize(this.formatOutput(result.join(' ')));
+            }
+            
+            formatOutput(text) {
+                // Fix spacing around punctuation and restore proper formatting
+                return text
+                    .replace(/\s+([.!?:;,])/g, '$1') // Remove spaces before punctuation
+                    .replace(/(\d)\s+:\s+(\d)/g, '$1:$2') // Fix time format like "12 : 34" -> "12:34"
+                    .replace(/(\d)\s+([.:])\s+(\d)/g, '$1$2$3') // Fix other number separators
+                    .replace(/\s+/g, ' ') // Normalize remaining whitespace
+                    .trim();
             }
             
             capitalize(text) {
