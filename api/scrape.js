@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { url } = req.query;
+  const { url, mode, batch } = req.query;
 
   if (!url) {
     return res.status(400).json({ success: false, error: 'URL parameter is required' });
@@ -26,45 +26,38 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('Fetching:', url);
+    console.log('Fetching:', url, 'Mode:', mode, 'Batch:', batch);
 
-    // Simple fetch with timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; TextBot/1.0)'
-      }
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    // Check if content is too large
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 1000000) { // 1MB limit
-      return res.status(413).json({
-        success: false,
-        error: 'File too large (>1MB). Please download and upload the file instead.'
-      });
-    }
-
-    const text = await response.text();
+    // Check if this is a large file request
+    const contentLength = await checkFileSize(url);
+    const isLargeFile = contentLength > 1000000; // >1MB
     
-    if (text.length > 500000) { // 500KB text limit
-      return res.status(413).json({
-        success: false,
-        error: 'Content too large. Please try a smaller file or download and upload instead.'
+    if (isLargeFile && !mode) {
+      // Offer options for large files
+      return res.status(200).json({
+        success: true,
+        isLargeFile: true,
+        fileSize: contentLength,
+        fileSizeMB: (contentLength / 1024 / 1024).toFixed(1),
+        options: {
+          sample: 'Get first 10,000 words',
+          batch: 'Process in batches (experimental)'
+        },
+        message: 'Large file detected. Choose processing method.'
       });
+    }
+
+    let text;
+    if (mode === 'batch' && isLargeFile) {
+      text = await fetchBatch(url, parseInt(batch) || 0);
+    } else if (mode === 'sample' && isLargeFile) {
+      text = await fetchSample(url);
+    } else {
+      text = await fetchComplete(url);
     }
 
     let extractedText = '';
-    const contentType = response.headers.get('content-type') || '';
+    const contentType = await getContentType(url);
 
     // Simple text extraction
     if (contentType.includes('text/plain') || url.endsWith('.txt')) {
@@ -101,8 +94,8 @@ export default async function handler(req, res) {
         .trim();
     }
 
-    // Truncate if still too long
-    if (extractedText.length > 100000) {
+    // Truncate if still too long (except for samples which are already limited)
+    if (mode !== 'sample' && extractedText.length > 100000) {
       extractedText = extractedText.substring(0, 100000) + '\n\n[Truncated for processing]';
     }
 
@@ -123,7 +116,7 @@ export default async function handler(req, res) {
       wordCount: wordCount,
       url: url,
       mode: mode || 'complete',
-      batch: batch || 0
+      batch: parseInt(batch) || 0
     });
 
   } catch (error) {
@@ -151,6 +144,16 @@ async function checkFileSize(url) {
     return contentLength ? parseInt(contentLength) : 0;
   } catch (e) {
     return 0;
+  }
+}
+
+// Helper function to get content type
+async function getContentType(url) {
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    return response.headers.get('content-type') || '';
+  } catch (e) {
+    return '';
   }
 }
 
