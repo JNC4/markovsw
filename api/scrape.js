@@ -47,22 +47,22 @@ export default async function handler(req, res) {
       });
     }
 
-    let htmlContent;
+    let text;
     if (mode === 'batch' && isLargeFile) {
-      htmlContent = await fetchBatch(url, parseInt(batch) || 0);
+      text = await fetchBatch(url, parseInt(batch) || 0);
     } else if (mode === 'sample' && isLargeFile) {
-      htmlContent = await fetchSample(url);
+      text = await fetchSample(url);
     } else {
-      htmlContent = await fetchComplete(url);
+      text = await fetchComplete(url);
     }
 
     let extractedText = '';
     const contentType = await getContentType(url);
 
-    // Check if it's plain text
+    // Simple text extraction
     if (contentType.includes('text/plain') || url.endsWith('.txt')) {
       // Plain text processing
-      extractedText = htmlContent
+      extractedText = text
         .replace(/\r\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
       }
     } else {
       // HTML content - use intelligent extraction
-      extractedText = await intelligentExtraction(htmlContent, url);
+      extractedText = intelligentExtraction(text, url);
     }
 
     // Truncate if still too long (except for samples which are already limited)
@@ -132,265 +132,117 @@ export default async function handler(req, res) {
 }
 
 // Intelligent content extraction function
-async function intelligentExtraction(htmlContent, url) {
-  const domain = new URL(url).hostname.toLowerCase();
-  
-  // Site-specific extractors
-  if (domain.includes('theunsentproject.com')) {
-    return extractUnsentProject(htmlContent);
-  } else if (domain.includes('reddit.com')) {
-    return extractReddit(htmlContent);
-  } else if (domain.includes('twitter.com') || domain.includes('x.com')) {
-    return extractTwitter(htmlContent);
-  } else if (domain.includes('medium.com')) {
-    return extractMedium(htmlContent);
-  } else if (domain.includes('substack.com')) {
-    return extractSubstack(htmlContent);
-  } else if (domain.includes('news.ycombinator.com')) {
-    return extractHackerNews(htmlContent);
-  } else if (domain.includes('stackoverflow.com')) {
-    return extractStackOverflow(htmlContent);
-  } else if (domain.includes('wikipedia.org')) {
-    return extractWikipedia(htmlContent);
-  } else if (domain.includes('github.com')) {
-    return extractGitHub(htmlContent);
-  } else {
-    // Generic content extraction
+function intelligentExtraction(htmlContent, url) {
+  try {
+    const domain = new URL(url).hostname.toLowerCase();
+    
+    // Site-specific extractors
+    if (domain.includes('theunsentproject.com')) {
+      return extractUnsentProject(htmlContent);
+    }
+    
+    // Add more site-specific extractors as needed
+    
+    // Fall back to generic extraction
     return extractGenericContent(htmlContent);
+  } catch (error) {
+    console.error('Intelligent extraction failed, falling back to basic:', error.message);
+    // Fallback to basic HTML text extraction
+    return htmlContent
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 }
 
 // The Unsent Project extractor
 function extractUnsentProject(htmlContent) {
-  const messages = [];
-  
-  // Look for image alt text patterns
-  const altTextRegex = /alt\s*=\s*["']([^"']+)["']/gi;
-  let match;
-  
-  while ((match = altTextRegex.exec(htmlContent)) !== null) {
-    const altText = match[1].trim();
+  try {
+    const messages = [];
     
-    // Filter out non-message alt text
-    if (altText && 
-        !altText.toLowerCase().includes('logo') &&
-        !altText.toLowerCase().includes('icon') &&
-        !altText.toLowerCase().includes('image') &&
-        !altText.toLowerCase().includes('photo') &&
-        altText.length > 10 && // Messages should be reasonably long
-        altText.length < 500) { // But not too long
-      messages.push(altText);
-    }
-  }
-  
-  // Also look for any text content in message containers
-  const messageContainerRegex = /<div[^>]*class[^>]*message[^>]*>([^<]+)</gi;
-  while ((match = messageContainerRegex.exec(htmlContent)) !== null) {
-    const messageText = match[1].trim();
-    if (messageText && messageText.length > 10) {
-      messages.push(messageText);
-    }
-  }
-  
-  // Clean and deduplicate messages
-  const cleanedMessages = messages
-    .map(msg => msg.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'))
-    .filter((msg, index, arr) => arr.indexOf(msg) === index) // Remove duplicates
-    .filter(msg => msg.length > 5); // Final length filter
-  
-  return cleanedMessages.join('\n\n');
-}
-
-// Reddit extractor
-function extractReddit(htmlContent) {
-  const posts = [];
-  
-  // Extract post titles and content
-  const titleRegex = /<h3[^>]*>([^<]+)</gi;
-  const contentRegex = /<div[^>]*data-testid="comment"[^>]*>[\s\S]*?<div[^>]*>([^<]+)</gi;
-  
-  let match;
-  while ((match = titleRegex.exec(htmlContent)) !== null) {
-    posts.push(cleanText(match[1]));
-  }
-  
-  while ((match = contentRegex.exec(htmlContent)) !== null) {
-    posts.push(cleanText(match[1]));
-  }
-  
-  return posts.join('\n\n');
-}
-
-// Twitter/X extractor
-function extractTwitter(htmlContent) {
-  const tweets = [];
-  
-  // Look for tweet content in various possible structures
-  const tweetRegex = /<div[^>]*data-testid="tweetText"[^>]*>([^<]+)</gi;
-  const tweetRegex2 = /<span[^>]*>([^<]{20,280})</gi; // Tweet-length spans
-  
-  let match;
-  while ((match = tweetRegex.exec(htmlContent)) !== null) {
-    tweets.push(cleanText(match[1]));
-  }
-  
-  return tweets.join('\n\n');
-}
-
-// Medium extractor
-function extractMedium(htmlContent) {
-  // Extract article content
-  const paragraphs = [];
-  const paragraphRegex = /<p[^>]*>([^<]+)</gi;
-  const headerRegex = /<h[1-6][^>]*>([^<]+)</g;
-  
-  let match;
-  while ((match = paragraphRegex.exec(htmlContent)) !== null) {
-    const text = cleanText(match[1]);
-    if (text.length > 20) {
-      paragraphs.push(text);
-    }
-  }
-  
-  while ((match = headerRegex.exec(htmlContent)) !== null) {
-    paragraphs.push(cleanText(match[1]));
-  }
-  
-  return paragraphs.join('\n\n');
-}
-
-// Substack extractor
-function extractSubstack(htmlContent) {
-  return extractMedium(htmlContent); // Similar structure
-}
-
-// Hacker News extractor
-function extractHackerNews(htmlContent) {
-  const items = [];
-  
-  // Extract story titles and comments
-  const titleRegex = /<a[^>]*class="storylink"[^>]*>([^<]+)</gi;
-  const commentRegex = /<div[^>]*class="comment"[^>]*>[\s\S]*?<span[^>]*>([^<]+)</gi;
-  
-  let match;
-  while ((match = titleRegex.exec(htmlContent)) !== null) {
-    items.push(cleanText(match[1]));
-  }
-  
-  while ((match = commentRegex.exec(htmlContent)) !== null) {
-    const text = cleanText(match[1]);
-    if (text.length > 20) {
-      items.push(text);
-    }
-  }
-  
-  return items.join('\n\n');
-}
-
-// Stack Overflow extractor
-function extractStackOverflow(htmlContent) {
-  const content = [];
-  
-  // Extract questions and answers
-  const questionRegex = /<div[^>]*class="s-prose"[^>]*>([\s\S]*?)</div>/gi;
-  const codeBlockRegex = /<pre[^>]*><code[^>]*>([^<]+)</gi;
-  
-  let match;
-  while ((match = questionRegex.exec(htmlContent)) !== null) {
-    const text = cleanText(match[1]);
-    if (text.length > 20) {
-      content.push(text);
-    }
-  }
-  
-  return content.join('\n\n');
-}
-
-// Wikipedia extractor
-function extractWikipedia(htmlContent) {
-  const paragraphs = [];
-  
-  // Extract main content paragraphs
-  const paragraphRegex = /<p>([^<]+(?:<[^>]+>[^<]*</[^>]+>[^<]*)*)</p>/gi;
-  
-  let match;
-  while ((match = paragraphRegex.exec(htmlContent)) !== null) {
-    const text = cleanText(match[1]);
-    if (text.length > 50 && !text.includes('Coordinates:')) {
-      paragraphs.push(text);
-    }
-  }
-  
-  return paragraphs.join('\n\n');
-}
-
-// GitHub extractor
-function extractGitHub(htmlContent) {
-  const content = [];
-  
-  // Extract README content, issue descriptions, etc.
-  const readmeRegex = /<div[^>]*class="markdown-body"[^>]*>([\s\S]*?)</div>/gi;
-  const issueRegex = /<div[^>]*class="comment-body"[^>]*>([\s\S]*?)</div>/gi;
-  
-  let match;
-  while ((match = readmeRegex.exec(htmlContent)) !== null) {
-    const text = cleanText(match[1]);
-    if (text.length > 20) {
-      content.push(text);
-    }
-  }
-  
-  return content.join('\n\n');
-}
-
-// Generic content extractor
-function extractGenericContent(htmlContent) {
-  // Remove scripts, styles, and other non-content elements
-  let cleanedHtml = htmlContent
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-    .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
-    .replace(/<!--[\s\S]*?-->/gi, '');
-
-  // Extract text from common content containers
-  const contentRegex = /<(?:main|article|section|div)[^>]*(?:class="[^"]*(?:content|post|article|entry)[^"]*"[^>]*|id="[^"]*(?:content|post|article|entry)[^"]*"[^>]*|>)[\s\S]*?<\/(?:main|article|section|div)>/gi;
-  
-  let extractedContent = '';
-  let match;
-  
-  while ((match = contentRegex.exec(cleanedHtml)) !== null) {
-    extractedContent += match[0] + ' ';
-  }
-  
-  // If no specific content containers found, extract from paragraphs and headings
-  if (extractedContent.length < 100) {
-    const paragraphRegex = /<(?:p|h[1-6])[^>]*>([^<]+(?:<[^>]+>[^<]*</[^>]+>[^<]*)*)</(?:p|h[1-6])>/gi;
-    const paragraphs = [];
+    // Look for image alt text patterns
+    const altTextRegex = /alt\s*=\s*["']([^"']+)["']/gi;
+    let match;
     
-    while ((match = paragraphRegex.exec(cleanedHtml)) !== null) {
-      const text = cleanText(match[1]);
-      if (text.length > 20) {
-        paragraphs.push(text);
+    while ((match = altTextRegex.exec(htmlContent)) !== null) {
+      const altText = match[1].trim();
+      
+      // Filter out non-message alt text
+      if (altText && 
+          !altText.toLowerCase().includes('logo') &&
+          !altText.toLowerCase().includes('icon') &&
+          !altText.toLowerCase().includes('image') &&
+          !altText.toLowerCase().includes('photo') &&
+          !altText.toLowerCase().includes('unsent project') &&
+          altText.length > 10 && // Messages should be reasonably long
+          altText.length < 500) { // But not too long
+        messages.push(cleanText(altText));
       }
     }
     
-    extractedContent = paragraphs.join('\n\n');
-  } else {
-    // Clean the extracted content
-    extractedContent = extractedContent
+    // Clean and deduplicate messages
+    const cleanedMessages = messages
+      .filter((msg, index, arr) => arr.indexOf(msg) === index) // Remove duplicates
+      .filter(msg => msg.length > 5); // Final length filter
+    
+    if (cleanedMessages.length > 0) {
+      return cleanedMessages.join('\n\n');
+    }
+    
+    // If no messages found in alt text, fall back to generic extraction
+    return extractGenericContent(htmlContent);
+  } catch (error) {
+    console.error('Unsent Project extraction failed:', error.message);
+    return extractGenericContent(htmlContent);
+  }
+}
+
+// Generic content extractor (simplified and more robust)
+function extractGenericContent(htmlContent) {
+  try {
+    // Remove scripts, styles, and other non-content elements
+    let cleanedHtml = htmlContent
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+      .replace(/<!--[\s\S]*?-->/gi, '');
+
+    // Extract text from paragraphs and headings
+    const textBlocks = [];
+    const paragraphRegex = /<(?:p|h[1-6])[^>]*>([^<]+(?:<[^>]+>[^<]*<\/[^>]+>[^<]*)*)<\/(?:p|h[1-6])>/gi;
+    
+    let match;
+    while ((match = paragraphRegex.exec(cleanedHtml)) !== null) {
+      const text = cleanText(match[1]);
+      if (text.length > 20) {
+        textBlocks.push(text);
+      }
+    }
+    
+    if (textBlocks.length > 0) {
+      return textBlocks.join('\n\n');
+    }
+    
+    // Final fallback - strip all HTML
+    return cleanText(cleanedHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+  } catch (error) {
+    console.error('Generic extraction failed:', error.message);
+    // Ultimate fallback
+    return htmlContent
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
-  
-  return cleanText(extractedContent);
 }
 
 // Helper function to clean text
 function cleanText(text) {
+  if (!text) return '';
+  
   return text
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, '&')
